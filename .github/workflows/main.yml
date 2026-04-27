@@ -28,4 +28,3 @@ jobs:
           fetch-depth: 0
       - run: npm install @commitlint/config-conventional
       - uses: wagoid/commitlint-github-action@v5
-# versão corrigida
