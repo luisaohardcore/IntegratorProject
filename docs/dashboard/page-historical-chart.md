@@ -1,109 +1,163 @@
-Ecrã: Histórico de Temperatura e Umidade (Últimas 24h)
+# Tela: Histórico — Gráficos de Todas as Variáveis
 
-1. Ecrã Escolhido e Justificativa
+**Componente:** `src/features/historico/components/HistoricoPage.jsx`  
+**Release:** 2.0 (A1.8)  
+**Rota/aba:** `historico`
 
-O ecrã selecionado para a Release 1 (Prova de Conceito E2E) foi o Histórico de Temperatura e Umidade.
+---
 
-Justificativa Técnica e Gestão de Risco:
-A decisão de priorizar este ecrã baseou-se na mitigação de riscos técnicos (conforme as diretrizes arquiteturais A1.6 e A1.7). A visualização histórica é o alicerce de qualquer painel de controle de IoT. Ao implementarmos este ecrã primeiro, fomos obrigados a resolver os maiores desafios de desenvolvimento de uma só vez:
+## 1. Visão Geral e Justificativa
 
-Validação do Motor de Gráficos: Implementar o Chart.js de forma responsiva utilizando HTML5 Canvas, garantindo que o gráfico se redimensione dinamicamente sem estourar as margens físicas da aplicação.
+A tela de Histórico evoluiu da Release 1 (um único gráfico de temperatura e umidade) para uma visualização completa de todas as variáveis do sistema, com capacidade de expansão temporal interativa.
 
-Camada de Consumo Abstrata: Estabelecer o padrão arquitetural de consumo de API por meio de uma camada de fetch isolada (telemetryService.js), facilitando a transição para chamadas reais no futuro sem alterar o visual.
+**Decisões de design:**
 
-Tratamento de Dados Incompletos: Resolver de imediato o comportamento visual de séries temporais que apresentam falhas pontuais (ex: sensores temporariamente offline).
+- **4 gráficos separados** em vez de um único multi-eixo: reduz o ruído visual e permite leitura independente de cada grandeza física (temperatura, umidade, luminosidade, pH).
+- **Expansão progressiva** ("carregar mais") em vez de paginação clássica: o usuário percorre o tempo de forma contínua, sem perder o contexto dos dados já carregados.
+- **Botão por gráfico na borda esquerda**: posicionado onde a linha do tempo termina, tornando a ação de "ir mais atrás" intuitiva — você literalmente clica onde o dado acaba.
 
-Evitámos começar pelo ecrã de "Tempo Real" para adiar temporariamente a complexidade de conexões assíncronas persistentes (WebSockets) no Marco 1, focando em entregar um fluxo de renderização de dados robusto, testável e 100% defensável.
+---
 
-2. Interface e Responsividade (Visual Implementado)
+## 2. Interface e Funcionalidades
 
-A interface foi projetada utilizando uma abordagem Mobile-First, adaptando-se de forma fluida a três cenários de visualização:
+### 2.1 Controles
 
-Mobile (Dispositivos Móveis): A barra lateral de navegação (Sidebar) recolhe-se automaticamente e é substituída por um cabeçalho compacto com um botão de menu hamburguer. O gráfico reduz o limite máximo de rótulos do eixo X de forma a evitar a sobreposição de horários.
+| Controle | Descrição |
+|---|---|
+| Seletor de canteiro | Filtra todos os gráficos pelo canteiro selecionado |
+| Janela inicial (1d / 3d / 7d) | Define o período inicial exibido e o incremento do "carregar mais" |
+| Botão Atualizar | Re-fetcha o período atual mantendo o range expandido |
+| Badge "Inclui leitura atual" | Aparece quando a leitura em tempo real foi appendada ao gráfico |
+| Exportar CSV | Exporta todos os dados do range completo (não só a janela inicial) |
 
-Tablet (Visualização Intermédia): O layout ajusta as margens e reorganiza os cards de métricas de resumo de forma centralizada.
+### 2.2 Estatísticas de resumo
 
-Desktop (Ecrãs Largos): A Sidebar de navegação estende-se permanentemente na lateral esquerda, proporcionando acesso direto às funcionalidades, enquanto o gráfico utiliza 100% da largura útil restante.
+Acima dos gráficos, cards com **mín / méd / máx** por variável para o período visível:
+- Temperatura Ar
+- Umidade Solo
+- pH Solo
+- Luminosidade máxima
 
-3. Estados Visuais Cobertos (Robustez do Sistema)
+### 2.3 Os 4 gráficos
 
-O componente HistoryChart foi desenhado seguindo as exigências do requisito A1.6 para comportar-se como uma máquina de estados resiliente:
+| Gráfico | Variáveis | Eixo Y |
+|---|---|---|
+| 🌡️ Temperatura | Temp. Ar (°C) + Temp. Solo (°C) | 10–40 °C |
+| 💧 Umidade | Umidade Ar (%) + Umidade Solo (%) | 0–100 % |
+| ☀️ Luminosidade | Luminosidade (lx) | 0–∞ lx |
+| 🧪 pH do Solo | pH Solo | 4–9 |
 
-Estado
+### 2.4 Expansão temporal (carregar mais)
 
-Elemento Visual
+Cada gráfico tem um botão na **borda esquerda** (onde a linha do tempo começa):
 
-Comportamento Implementado
+```
+[←+1d][ 🌡️ Temperatura (°C)  ──────────────── ]
+[←+1d][ 💧 Umidade (%)        ──────────────── ]
+[←+1d][ ☀️ Luminosidade (lx)  ──────────────── ]
+[←+1d][ 🧪 pH do Solo          ──────────────── ]
+```
 
-Carregamento (Loading)
+- O incremento (`+Xd`) segue a **janela inicial selecionada** (1d, 3d ou 7d)
+- Clicar em qualquer botão expande **todos os gráficos** simultaneamente
+- Ao esgotar os dados, o botão é substituído por `✓ início`
+- O indicador `"Exibindo X dias · N leituras válidas"` atualiza a cada expansão
 
-Spinner dinâmico
+### 2.5 Leitura atual integrada
 
-Exibe um indicador circular de progresso (Loader2 animado da biblioteca lucide-react) enquanto a promessa assíncrona da API está pendente.
+`fetchCurrentTelemetry` é chamado em paralelo com `fetchHistorico`. Se o timestamp da leitura atual for mais recente que o último ponto histórico, ela é **appendada ao final de todos os datasets**, garantindo que os gráficos sempre terminam no momento presente. O último ponto é destacado visualmente (`pointRadius: 5`).
 
-Sucesso (Dados)
+---
 
-Gráfico com duas linhas
+## 3. Estados Visuais
 
-Plota a variação das últimas 24 horas: Linha vermelha para a Temperatura (°C) e linha azul para a Umidade do Ar (%).
+| Estado | Comportamento |
+|---|---|
+| Carregando | Spinner centralizado com texto "Carregando histórico…" |
+| Sem leituras válidas | Mensagem "Sem leituras válidas no período selecionado" |
+| Dados offline | Linhas com gaps (`spanGaps: true`) — pontos `null` não quebram o gráfico |
+| Erro de API | `ErrorBlock` com mensagem + código `HSM-HST-001` + botão "Tentar novamente" |
+| Carregando mais | Spinner no botão esquerdo, demais botões permanecem clicáveis |
+| Fim dos registros | Botão esquerdo substituído por `✓ início` (verde) |
 
-Erro de Conexão
+---
 
-Alerta vermelho + Botão CTA
+## 4. Estrutura de Dados Mock
 
-Exibe uma caixa de aviso indicando falha na sincronização dos dados e fornece um botão para reiniciar o fluxo de fetch sem quebrar o DOM.
+**Arquivo:** `src/features/telemetry/mocks/telemetry.mock.js`
 
-Sem Dados (Empty)
+Gera **169 leituras horárias** (7 dias × 24h + 1) **ancoradas em `Date.now()`**, garantindo que os dados estejam sempre dentro do filtro de 7 dias independente da data atual.
 
-Ilustração neutra informativa
+```js
+{
+  id:                number,
+  canteiro_id:       'canteiro-a' | 'canteiro-b' | 'canteiro-c',
+  timestamp:         ISO 8601,          // relativo a Date.now()
+  temperatura:       number | null,     // null = sensor offline
+  temperatura_solo:  number | null,
+  umidade:           number | null,
+  umidade_solo:      number | null,
+  luminosidade:      number | null,
+  PH_solo:           number | null,     // null = dado parcial
+  status_bomba:      boolean,
+  irrigacao_manual:  boolean,
+  status:            'ok' | 'offline' | 'suspeito'
+}
+```
 
-Caso a base esteja vazia, renderiza uma mensagem instruindo o usuário a verificar a instalação e o emparelhamento físico dos sensores da horta.
+**Cenários cobertos por canteiro:**
 
-Sensor Offline
+| Canteiro | Cenário |
+|---|---|
+| A – Alface | Happy path + spike de pH anômalo (3.8) no dia 3 ao meio-dia |
+| B – Tomate | Sensor offline nas últimas 6h + pH null em intervalos (dado parcial) |
+| C – Manjericão | Irrigação manual 12h atrás + sem irrigação automática |
 
-Banner de aviso + Lacuna
+---
 
-Se houver perda de sinal de leitura em uma janela temporal, exibe um banner amarelo no topo do gráfico. A curva não quebra, saltando o ponto nulo usando a propriedade spanGaps: true.
+## 5. Arquitetura da Camada de Serviço
 
-4. Estrutura de Mock e Plano de Migração
+**Arquivo:** `src/features/historico/services/historicoService.js`
 
-Formato de Dados (src/mocks/telemetry.mock.js)
+```js
+// Fetch principal — retorna todos os itens do período (limit: 9999)
+fetchHistorico({ canteiroId, days, page: 0, limit: 9999 })
 
-A estrutura de dados simula um contrato JSON estrito, devolvendo um array de objetos contendo:
+// Exportação — gera blob CSV e aciona download
+exportHistoricoCSV({ canteiroId, days })
+```
 
-id (Identificador único sequencial)
+**Comportamento com API real:**
+- `GET /api/v1/historico?canteiro=X&days=Y` → dados históricos
+- Se retornar **404** → fallback automático para mock (sem erro na tela)
+- Outros erros HTTP → `HortaError('HSM-HST-001', mensagem)`
 
-timestamp (Estampa de tempo em formato ISO 8601)
+**Modo mock:** ativado quando `VITE_USE_MOCK=true` ou `VITE_API_URL` não está definida.
 
-temperatura_ar (Leitura numérica de temperatura)
+---
 
-umidade_ar (Percentagem de umidade atmosférica)
+## 6. Testes
 
-umidade_solo (Percentagem de umidade do substrato)
+**Arquivo:** `src/tests/HistoricoPage.test.jsx` — 7 testes:
 
-status (String de controle: "ok" ou "offline")
+| Teste | O que valida |
+|---|---|
+| exibe spinner durante carregamento | Estado de loading inicial |
+| renderiza gráficos após carregar dados | ≥4 canvas `line-chart` no DOM |
+| exibe títulos dos 4 gráficos | Cabeçalhos com emoji presentes |
+| exibe estatísticas de resumo | Cards mín/méd/máx presentes |
+| exibe empty state sem leituras válidas | Mensagem quando todos os pontos são offline |
+| chama exportHistoricoCSV ao clicar | Função do serviço é invocada |
+| exibe ErrorBlock quando fetch falha | Mensagem de erro com código HSM |
 
-Os dados gerados reproduzem fielmente o ciclo circadiano diário (temperaturas mais quentes e secas durante o dia, clima mais frio e úmido no período noturno).
+---
 
-Plano de Migração para Produção
+## 7. Stack Técnica
 
-A camada de serviços foi completamente isolada do componente visual em src/services/telemetryService.js. Na Release 2, para substituir o mock pela integração real com o backend da horta, será necessário alterar apenas o corpo da função fetchTelemetryData:
-
-// Substituição futura na Release 2:
-export const fetchTelemetryData = async () => {
-  const response = await axios.get('/api/telemetry?hours=24');
-  return response.data;
-};
-
-
-O componente visual continuará a processar e exibir os dados exatamente da mesma forma, garantindo um acoplamento extremamente baixo.
-
-5. Decisão de Stack (Frontend)
-
-React 18: Fornece um motor de renderização baseado em componentes, facilitando o gerenciamento de estados assíncronos de forma previsível.
-
-Chart.js & React-Chartjs-2: Biblioteca de gráficos de alto desempenho com suporte nativo a múltiplos eixos de coordenadas e tratamento elegante de pontos vazios (spanGaps).
-
-Tailwind CSS (v3): Permite construir interfaces responsivas diretamente através de classes utilitárias no HTML/JSX, otimizando o carregamento visual sem dependência de folhas de estilo .css externas complexas.
-
-Jest & React Testing Library: Framework de testes automatizados para validar a integridade dos 5 estados da interface perante alterações de código.
+| Tecnologia | Versão | Uso |
+|---|---|---|
+| React | 19 | Componente funcional com hooks |
+| Chart.js + react-chartjs-2 | ^4.5 / ^5.3 | 4 gráficos de linha |
+| chartjs-adapter-date-fns | ^3.0 | Eixo X temporal com formato dd/MM HH:mm |
+| Tailwind CSS | ^3.4 | Layout responsivo, cards, botões |
+| lucide-react | ^1.16 | Ícones (ChevronsLeft, CheckCircle2, Download) |
