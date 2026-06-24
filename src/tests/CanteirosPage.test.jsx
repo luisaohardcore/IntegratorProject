@@ -83,3 +83,63 @@ describe('CanteirosPage', () => {
     });
   });
 });
+
+// ── Segurança T-01: XSS ───────────────────
+describe('CanteirosPage — T-01 XSS (Security)', () => {
+  const BASE_CANTEIRO = {
+    id: 'sec-test',
+    cultura: 'Teste Segurança',
+    area_m2: 1,
+    data_plantio: '2026-01-01',
+    localizacao: 'Lab',
+    status: 'ativo',
+    umidade_critica: 35,
+    notas: '',
+  };
+
+  // ── Caso 1: payload XSS ──────────────────────────────────────────
+  test(
+    'ATAQUE: <img src=x onerror=alert(1)> é renderizado como texto inerte',
+    async () => {
+      const XSS_PAYLOAD = '<img src=x onerror=alert(1)>';
+
+      // Simula criação via createCanteiro com nome malicioso
+      svc.fetchCanteiros.mockResolvedValue([{
+        ...BASE_CANTEIRO,
+        nome: XSS_PAYLOAD,
+      }]);
+
+      const { container } = render(<CanteirosPage />);
+
+      await waitFor(() =>
+        expect(screen.getByText(XSS_PAYLOAD)).toBeInTheDocument()
+      );
+
+      expect(container.querySelector('script')).toBeNull();
+      expect(container.querySelector('[onerror]')).toBeNull();
+      expect(container.innerHTML).not.toMatch(/<script[\s>]/i);
+      expect(container.innerHTML).toContain('&lt;img');
+    }
+  );
+
+  // ── Caso 2: nome legítimo com caracteres especiais ──
+  test(
+    'CONTRAPONTO: nome legítimo com caracteres especiais é exibido corretamente',
+    async () => {
+      const NOME_LEGITIMO = 'Canteiro "São João" & cia';
+
+      svc.fetchCanteiros.mockResolvedValue([{
+        ...BASE_CANTEIRO,
+        nome: NOME_LEGITIMO,
+      }]);
+
+      render(<CanteirosPage />);
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(NOME_LEGITIMO)
+        ).toBeInTheDocument()
+      );
+    }
+  );
+});

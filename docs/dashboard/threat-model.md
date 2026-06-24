@@ -27,11 +27,42 @@
 
 **Vetor:** POST `/api/v1/canteiros` com payload malicioso → renderizado em `CanteirosPage.jsx`.
 
-**Mitigação aplicada:** React escapa automaticamente expressões JSX — `{c.nome}` nunca será interpretado como HTML raw. Nenhum uso de `dangerouslySetInnerHTML` no codebase.
+**Mitigações aplicadas:**
+1. **React JSX escaping** — `{c.nome}` nunca interpretado como HTML raw. Nenhum uso de `dangerouslySetInnerHTML`.
+2. **Sanitização ativa** — `sanitizePayload()` em `canteirosService.js` strip tags HTML (`<[^>]*>`), `javascript:` e atributos de evento (`on\w+=`) antes de qualquer persistência ou exibição.
+3. **Content-Security-Policy** — meta tag CSP em `index.html` bloqueia execução de scripts inline (`script-src 'self'`), neutralizando XSS mesmo que um payload malicioso chegue ao DOM.
 
-**Status:** ✅ Mitigado (React default escaping)
+**Status:** Mitigado — com prova executável (dois lados)
 
-**Evidência:** `grep -r "dangerouslySetInnerHTML" src/` retorna vazio.
+**Evidências:**
+
+**Lado 1 — Ataque (XSS payload):**
+Arquivo: `src/tests/CanteirosPage.test.jsx`
+Describe: `CanteirosPage — T-01 XSS (Security)`
+Teste: `ATAQUE: <img src=x onerror=alert(1)> é renderizado como texto inerte`
+
+Fluxo testado:
+1. `fetchCanteiros` retorna canteiro com `nome: '<img src=x onerror=alert(1)>'`
+2. `CanteirosPage` renderiza a lista
+3. Asserções DOM:
+   - `screen.getByText('<img src=x onerror=alert(1)>')` → texto visível como literal
+   - `container.querySelector('script')` → `null`
+   - `container.querySelector('[onerror]')` → `null`
+   - `container.innerHTML` não contém `<script`
+   - `container.innerHTML` contém `&lt;img` (escapado)
+
+**Lado 2 — Contraponto (nome legítimo com caracteres especiais):**
+Teste: `CONTRAPONTO: nome legítimo com caracteres especiais é exibido corretamente`
+
+- `nome: 'Canteiro "São João" & cia'`
+- `screen.getByText('Canteiro "São João" & cia')` → exibido corretamente
+- Prova que a proteção não quebra nomes Unicode válidos
+
+**Reproduzir:** `npx jest CanteirosPage --no-coverage` → 9/9
+
+**Evidência de SCA:** `docs/dashboard/evidencias/npm-audit-xss-20260624.log`
+- 2 altas (vite, ws) → corrigidas com `npm audit fix`
+- 17 moderadas → devDependencies do Jest, sem impacto em produção
 
 ---
 
@@ -45,7 +76,7 @@
 - Documentado como **requisito de implantação**: `VITE_API_URL` deve usar `https://` obrigatoriamente.
 - Em desenvolvimento, o mock local não expõe tráfego de rede real.
 
-**Status:** ⚠️ Dívida técnica — não é aplicável durante mock, mas deve ser enforçado no deploy via CSP + HSTS.
+**Status:** Dívida técnica — não é aplicável durante mock, mas deve ser enforçado no deploy via CSP + HSTS.
 
 **Ação pendente:** Adicionar header `Content-Security-Policy: upgrade-insecure-requests` e `Strict-Transport-Security` no servidor de hospedagem do front.
 
@@ -61,7 +92,7 @@
 - O `logger.js` registra apenas metadados de fetch (URL, status, latência) — nunca o body da resposta.
 - O backend ESP32 não deve incluir credenciais Wi-Fi no payload JSON (responsabilidade do firmware — documentada no RFC-001).
 
-**Status:** ✅ Mitigado no front. Dívida técnica no firmware (fora do escopo deste documento).
+**Status:** Mitigado no front. Dívida técnica no firmware (fora do escopo deste documento).
 
 ---
 
@@ -76,7 +107,7 @@
 - Os valores de filtro são validados no mock contra listas fixas de IDs conhecidos.
 - A sanitização de ORM/query parameterization é responsabilidade do backend.
 
-**Status:** ✅ Mitigado no front (URLSearchParams encoding). Responsabilidade de sanitização final no backend.
+**Status:** Mitigado no front (URLSearchParams encoding). Responsabilidade de sanitização final no backend.
 
 ---
 
@@ -90,7 +121,7 @@
 - O front usa token Bearer no header `Authorization` — cookies não são o mecanismo de auth, portanto CSRF clássico não se aplica.
 - Tokens Bearer em `Authorization` header não são enviados automaticamente por navegadores cross-origin.
 
-**Status:** ✅ Mitigado por uso de Bearer token em vez de cookies.
+**Status:** Mitigado por uso de Bearer token em vez de cookies.
 
 ---
 
