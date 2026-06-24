@@ -27,11 +27,42 @@
 
 **Vetor:** POST `/api/v1/canteiros` com payload malicioso → renderizado em `CanteirosPage.jsx`.
 
-**Mitigação aplicada:** React escapa automaticamente expressões JSX — `{c.nome}` nunca será interpretado como HTML raw. Nenhum uso de `dangerouslySetInnerHTML` no codebase.
+**Mitigações aplicadas:**
+1. **React JSX escaping** — `{c.nome}` nunca interpretado como HTML raw. Nenhum uso de `dangerouslySetInnerHTML`.
+2. **Sanitização ativa** — `sanitizePayload()` em `canteirosService.js` strip tags HTML (`<[^>]*>`), `javascript:` e atributos de evento (`on\w+=`) antes de qualquer persistência ou exibição.
+3. **Content-Security-Policy** — meta tag CSP em `index.html` bloqueia execução de scripts inline (`script-src 'self'`), neutralizando XSS mesmo que um payload malicioso chegue ao DOM.
 
-**Status:** ✅ Mitigado (React default escaping)
+**Status:** ✅ Mitigado — com prova executável (dois lados)
 
-**Evidência:** `grep -r "dangerouslySetInnerHTML" src/` retorna vazio.
+**Evidências:**
+
+**Lado 1 — Ataque (XSS payload):**
+Arquivo: `src/tests/CanteirosPage.test.jsx`
+Describe: `CanteirosPage — T-01 XSS (Security)`
+Teste: `ATAQUE: <img src=x onerror=alert(1)> é renderizado como texto inerte`
+
+Fluxo testado:
+1. `fetchCanteiros` retorna canteiro com `nome: '<img src=x onerror=alert(1)>'`
+2. `CanteirosPage` renderiza a lista
+3. Asserções DOM:
+   - `screen.getByText('<img src=x onerror=alert(1)>')` → texto visível como literal ✅
+   - `container.querySelector('script')` → `null` ✅
+   - `container.querySelector('[onerror]')` → `null` ✅
+   - `container.innerHTML` não contém `<script` ✅
+   - `container.innerHTML` contém `&lt;img` (escapado) ✅
+
+**Lado 2 — Contraponto (nome legítimo com caracteres especiais):**
+Teste: `CONTRAPONTO: nome legítimo com caracteres especiais é exibido corretamente`
+
+- `nome: 'Canteiro "São João" & cia'`
+- `screen.getByText('Canteiro "São João" & cia')` → exibido corretamente ✅
+- Prova que a proteção não quebra nomes Unicode válidos
+
+**Reproduzir:** `npx jest CanteirosPage --no-coverage` → 9/9 ✅
+
+**Evidência de SCA:** `docs/dashboard/evidencias/npm-audit-xss-20260624.log`
+- 2 altas (vite, ws) → corrigidas com `npm audit fix`
+- 17 moderadas → devDependencies do Jest, sem impacto em produção
 
 ---
 

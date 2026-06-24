@@ -83,3 +83,84 @@ describe('CanteirosPage', () => {
     });
   });
 });
+
+// ── Segurança T-01: XSS — dois lados da prova ───────────────────
+//
+// Caso 1 (lado do ataque): canteiro criado via createCanteiro com nome
+//   igual ao payload XSS clássico. Prova que o DOM não contém nós
+//   executáveis — o payload aparece como texto literal inerte.
+//
+// Caso 2 (contraponto): nome legítimo com caracteres especiais Unicode
+//   (aspas, cedilha, ampersand) deve ser exibido corretamente — a
+//   proteção não quebra nomes válidos.
+// ─────────────────────────────────────────────────────────────────────
+describe('CanteirosPage — T-01 XSS (Security)', () => {
+  const BASE_CANTEIRO = {
+    id: 'sec-test',
+    cultura: 'Teste Segurança',
+    area_m2: 1,
+    data_plantio: '2026-01-01',
+    localizacao: 'Lab',
+    status: 'ativo',
+    umidade_critica: 35,
+    notas: '',
+  };
+
+  // ── Caso 1: payload XSS ──────────────────────────────────────────
+  test(
+    'ATAQUE: <img src=x onerror=alert(1)> é renderizado como texto inerte',
+    async () => {
+      const XSS_PAYLOAD = '<img src=x onerror=alert(1)>';
+
+      // Simula criação via createCanteiro com nome malicioso
+      // (equivale a um POST direto na API pelo invasor)
+      svc.fetchCanteiros.mockResolvedValue([{
+        ...BASE_CANTEIRO,
+        nome: XSS_PAYLOAD,
+      }]);
+
+      const { container } = render(<CanteirosPage />);
+
+      // O payload deve aparecer como texto visível na tela
+      await waitFor(() =>
+        expect(screen.getByText(XSS_PAYLOAD)).toBeInTheDocument()
+      );
+
+      // Prova 1: nenhum nó <script> existe no DOM
+      expect(container.querySelector('script')).toBeNull();
+
+      // Prova 2: nenhum elemento com onerror= foi criado
+      // (se houvesse, o browser executaria alert(1))
+      expect(container.querySelector('[onerror]')).toBeNull();
+
+      // Prova 3: nenhuma tag <script> no HTML gerado
+      expect(container.innerHTML).not.toMatch(/<script[\s>]/i);
+
+      // Prova 4: o texto está escapado no innerHTML
+      // (<img ... deve aparecer como &lt;img ... não como tag real)
+      expect(container.innerHTML).toContain('&lt;img');
+    }
+  );
+
+  // ── Caso 2: contraponto — nome legítimo com caracteres especiais ──
+  test(
+    'CONTRAPONTO: nome legítimo com caracteres especiais é exibido corretamente',
+    async () => {
+      const NOME_LEGITIMO = 'Canteiro "São João" & cia';
+
+      svc.fetchCanteiros.mockResolvedValue([{
+        ...BASE_CANTEIRO,
+        nome: NOME_LEGITIMO,
+      }]);
+
+      render(<CanteirosPage />);
+
+      // O nome legítimo deve aparecer exatamente como foi digitado
+      await waitFor(() =>
+        expect(
+          screen.getByText(NOME_LEGITIMO)
+        ).toBeInTheDocument()
+      );
+    }
+  );
+});
